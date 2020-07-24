@@ -2,30 +2,32 @@ const {article,proper} = require("../modules/lang");
 
 module.exports = {
 	help: cfg => "Unregister " + article(cfg) + " " + cfg.lang + "",
-	usage: cfg =>  ["remove <name> - Unregister the named " + cfg.lang + " from your list"],
+	usage: cfg =>  ["remove <name> - Unregister the named " + cfg.lang + " from your list",
+		"remove * - Unregister ALL of your " + cfg.lang + "s (requires confirmation)"],
 	permitted: () => true,
-	execute: (bot, msg, args, cfg) => {
-		let out = "";
-		args = bot.getMatches(msg.content.slice(cfg.prefix.length),/['](.*?)[']|(\S+)/gi).slice(1);
-		let name = args.join(" ");
-		if(!args[0]) {
-			return bot.cmds.help.execute(bot, msg, ["remove"], cfg);
-		} else if(!bot.tulpae[msg.author.id]) {
-			out = "You do not have any " + cfg.lang + "s registered.";
-		} else if(!bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == name.toLowerCase())) {
-			out = "Could not find " + cfg.lang + " with that name registered under your account.";
-		} else {
-			out = proper(cfg.lang) + " unregistered.";
-			let arr = bot.tulpae[msg.author.id];
-			let tul = arr.find(t => t.name.toLowerCase() == name.toLowerCase());
-			/*if(tul.roles) {
-					Object.keys(tul.roles).filter(id => bot.config[id].rolesEnabled).forEach(id => {
-						if(bot.guilds.get(id).roles.has(tul.roles[id]))
-							bot.deleteRole(id,tul.roles[id]);
-					});
-				}*/
-			arr.splice(arr.indexOf(tul), 1);
+	groupArgs: true,
+	execute: async (bot, msg, args, cfg) => {
+		if(!args[0]) return bot.cmds.help.execute(bot, msg, ["remove"], cfg);
+		
+		//check arguments
+		if(args[0] == "*") {
+			try {
+				await bot.send(msg.channel, `Warning: This will remove ALL of your ${cfg.lang}s. Reply 'yes' to continue or anything else to cancel.`);
+				let response = await bot.waitMessage(msg);
+				if(response.content.toLowerCase() != "yes") return "Canceling operation.";
+			} catch(e) {
+				if(e == "timeout") return "Response timed out. Canceling.";
+				else throw e;
+			}
+			await bot.db.query("DELETE FROM Members WHERE user_id = $1",[msg.author.id]);
+			return `All ${cfg.lang}s removed.`;
 		}
-		bot.send(msg.channel, out);
+		let name = args.join(" ");
+		let member = await bot.db.getMember(msg.author.id,name);
+		if(!member) return "Could not find " + cfg.lang + " with that name registered under your account.";
+		
+		//delete
+		await bot.db.deleteMember(msg.author.id,name);
+		return proper(cfg.lang) + " unregistered.";
 	}
 };

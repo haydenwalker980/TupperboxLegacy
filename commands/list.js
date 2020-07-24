@@ -1,103 +1,96 @@
-const announcement = "Tupper avatar broken? Discord changed some things, please re-set it with the avatar command!\n";
-
 module.exports = {
 	help: cfg => "Get a detailed list of yours or another user's registered " + cfg.lang + "s",
-	usage: cfg =>  ["list [user] - Sends a list of the user's registered " + cfg.lang + "s, their brackets, post count, and birthday (if set). If user is not specified it defaults to the message author. If 'all' or '*' is given, gives a short form list of all tuppers in the server."],
+	usage: cfg =>  ["list [user] - Sends a list of the user's registered " + cfg.lang + "s, their brackets, post count, and birthday (if set). If user is not specified it defaults to the message author.\nThe bot will provide reaction emoji controls for navigating long lists: Arrows navigate through pages, # jumps to a specific page, ABCD jumps to a specific " + cfg.lang + ", and the stop button deletes the message."],
 	permitted: () => true,
-	execute: (bot, msg, args, cfg) => {
-		let out = "";
-		if(args[0] == "all" || args[0] == "*") { //short list of all tuppers
-			let tups = msg.channel.guild.members.filter(m => bot.tulpae[m.id] && bot.tulpae[m.id].length > 0).map(m => bot.tulpae[m.id]);
+	cooldown: msg => 60000,
+	execute: async (bot, msg, args, cfg, _members, ng = false) => {
+		////short list of all tuppers in server
+		//if(args[0] == "all" || args[0] == "*") {
+		//	if(!msg.channel.guild) return "Cannot retrieve server-wide list in DMs.";
+		//	let tups = (await bot.db.query("SELECT * FROM Members WHERE user_id = ANY ($1) ORDER BY id, position", [msg.channel.guild.members.map(m => m.id)])).rows;
+		//	let all = {};
+		//	tups.forEach(t => {
+		//		if(!all[t.user_id]) all[t.user_id] = [];
+		//		all[t.user_id].push(t);
+		//	});
+		//	let extra = { 
+		//		title: `${tups.length} total registered ${cfg.lang}s in this server`,
+		//		author: {
+		//			name: msg.channel.guild.name,
+		//			icon_url: msg.channel.guild.iconURL
+		//		}
+		//	};
+		//	let embeds = bot.generatePages(Object.keys(all), id => {
+		//		let user = bot.users.get(id);
+		//		let field = {
+		//			name: `${user.username}#${user.discriminator} (${all[id].length} registered)`,
+		//			value: all[id].map(mem => mem.name).join(", ")
+		//		};
+		//		if(field.value.length > 1000) field.value = field.value.slice(0,1000) + "...";
+		//		return field;
+		//	}, extra);
+		//	if(embeds[1]) return bot.paginate(msg, embeds);
+		//	return embeds[0];
+		//}
 
-			let embeds = [];
-			let current = { embed: {
-				title: `${tups.reduce((acc,val) => acc+val.length,0)} total registered ${cfg.lang}s in this server`,
-				author: {
-					name: msg.channel.guild.name,
-					icon_url: msg.channel.guild.iconURL
-				},
-				fields: []
-			}, content: announcement};
-			let page = 1;
-			tups.forEach(t => {
-				let user = bot.users.get(t[0].host);
-				let field = {
-					name: `${user.username}#${user.discriminator} (${t.length} registered)`,
-					value: t.map(tul => tul.name).join(", ")
-				};
-				if(field.value.length > 1000) field.value = field.value.slice(0,1000) + "...";
-				if(current.embed.fields.length < 5) {
-					current.embed.fields.push(field);
-				} else {
-					embeds.push(current);
-					page++;
-					current = { embed: {
-						title: `${tups.reduce((acc,val) => acc+val.length,0)} total registered ${cfg.lang}s in this server`,
-						author: {
-							name: msg.channel.guild.name,
-							icon_url: msg.channel.guild.iconURL
-						},
-						fields: []
-					}, content: announcement};
-				}
-			});
-			embeds.push(current);
-			out = embeds[0];
-			if(page > 1) {
-				for(let i = 0; i < embeds.length; i++) 
-					embeds[i].embed.title += ` (page ${i+1}/${embeds.length})`;
-				return bot.paginate(msg, embeds);
-			}
-			return bot.send(msg.channel, out);
-		}
+		//get target list
 		let target;
 		if(args[0]) {
-			if(msg.channel.type == 1) return bot.send(msg.channel,"Cannot search for members in a DM.");
-			else target = bot.resolveUser(msg, args.join(" "));
-		} else {
-			target = msg.author;
-		}
-		if(!target) {
-			out = "User not found.";
-		} else if(!bot.tulpae[target.id]) {
-			out = (target.id == msg.author.id) ? "You have not registered any " + cfg.lang + "s." : "That user has not registered any " + cfg.lang + "s.";
-		} else {
+			if(msg.channel.type == 1) return "Cannot search for members in a DM.";
+			target = await bot.resolveUser(msg, args.join(" "));
+		} else target = msg.author;
+		if(!target) return "User not found.";
+
+		//generate paginated list with groups
+		let groups = (await bot.db.query("SELECT * FROM Groups WHERE user_id = $1 ORDER BY position", [target.id])).rows;
+		if(groups[0] && !ng) {
+			let members = (await bot.db.query("SELECT * FROM Members WHERE user_id = $1 ORDER BY group_pos, position", [target.id])).rows;
+			if(!members[0]) return (target.id == msg.author.id) ? "You have not registered any " + cfg.lang + "s." : "That user has not registered any " + cfg.lang + "s.";
+			if(members.find(t => !t.group_id)) groups.push({name: "Ungrouped", id: null});
 			let embeds = [];
-			let current = { embed: {
-				title: `${target.username}#${target.discriminator}'s registered ${cfg.lang}s`,
-				author: {
-					name: target.username,
-					icon_url: target.avatarURL
-				},
-				fields: []
-			}, content: announcement};
-			let page = 1;
-			bot.tulpae[target.id].forEach(t => {
-				let field = bot.generateTulpaField(t);
-				if(current.embed.fields.length < 5) {
-					current.embed.fields.push(field);
-				} else {
-					embeds.push(current);
-					page++;
-					current = { embed: {
-						title: `${target.username}#${target.discriminator}'s registered ${cfg.lang}s`,
-						author: {
-							name: target.username,
-							icon_url: target.avatarURL
-						},
-						fields: [field]
-					}, content: announcement};
-				}
-			});
-			embeds.push(current);
-			out = embeds[0];
-			if(page > 1) {
-				for(let i = 0; i < embeds.length; i++)
-					embeds[i].embed.title += ` (page ${i+1}/${embeds.length}, ${bot.tulpae[target.id].length} total)`;
-				return bot.paginate(msg, embeds);
+			for(let i=0; i<groups.length; i++) {
+				let extra = {
+					title: `${target.username}#${target.discriminator}'s registered ${cfg.lang}s`,
+					author: {
+						name: target.username, 
+						icon_url: target.avatarURL
+					},
+					description: `Group: ${groups[i].name}${groups[i].tag ? "\nTag: " + groups[i].tag : ""}${groups[i].description ? "\n" + groups[i].description : ""}`
+				};
+				let add = await bot.generatePages(members.filter(t => t.group_id == groups[i].id), t => bot.generateMemberField(t),extra);
+				if(add[add.length-1].embed.fields.length < 5 && groups[i+1]) add[add.length-1].embed.fields.push({
+					name: "\u200b",
+					value: `Next page: group ${groups[i+1].name}`
+				});
+				embeds = embeds.concat(add);
 			}
-				
+			
+			for(let i=0; i<embeds.length; i++) {
+				embeds[i].embed.title = `${target.username}#${target.discriminator}'s registered ${cfg.lang}s`;
+				if(embeds.length > 1) embeds[i].embed.title += ` (page ${i+1}/${embeds.length}, ${members.length} total)`;
+			}
+
+			if(embeds[1]) return bot.paginate(msg,embeds);
+			return embeds[0];
 		}
-		bot.send(msg.channel, out);
+		let members = (await bot.db.query("SELECT * FROM Members WHERE user_id = $1 ORDER BY position", [target.id])).rows;
+		if(!members[0]) return (target.id == msg.author.id) ? "You have not registered any " + cfg.lang + "s." : "That user has not registered any " + cfg.lang + "s.";
+
+		//generate paginated list
+		let extra = {
+			title: `${target.username}#${target.discriminator}'s registered ${cfg.lang}s`,
+			author: {
+				name: target.username,
+				icon_url: target.avatarURL
+			}
+		};
+		
+		let embeds = await bot.generatePages(members, async t => {
+			let group = null;
+			if(t.group_id) group = (await bot.db.query("SELECT name FROM Groups WHERE id = $1",[t.group_id])).rows[0];
+			return bot.generateMemberField(t,group);
+		}, extra);
+		if(embeds[1]) return bot.paginate(msg, embeds);
+		return embeds[0];
 	}
 };

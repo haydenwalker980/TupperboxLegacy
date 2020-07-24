@@ -4,19 +4,16 @@ module.exports = {
 	help: cfg => "Toggles whether the brackets are included or stripped in proxied messages for the given " + cfg.lang,
 	usage: cfg =>  ["togglebrackets <name> - toggles showing brackets on or off for the given " + cfg.lang],
 	permitted: () => true,
-	execute: (bot, msg, args, cfg) => {
-		let out = "";
-		args = bot.getMatches(msg.content.slice(cfg.prefix.length),/['](.*?)[']|(\S+)/gi).slice(1);
-		if(!args[0]) {
-			return bot.cmds.help.execute(bot, msg, ["togglebrackets"], cfg);
-		} else if(!bot.tulpae[msg.author.id] || !bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase())) {
-			out = "You don't have " + article(cfg) + " " + cfg.lang + " with that name registered.";
-		} else {
-			let tup = bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase());
-			if(!tup.showbrackets) tup.showbrackets = false;
-			tup.showbrackets = !tup.showbrackets;
-			out = `Now ${tup.showbrackets ? "showing" : "hiding"} brackets in proxied messages for ${tup.name}.`;
-		}
-		bot.send(msg.channel, out);
+	groupArgs: true,
+	execute: async (bot, msg, args, cfg) => {
+		if(!args[0]) return bot.cmds.help.execute(bot, msg, ["togglebrackets"], cfg);
+		
+		//check arguments
+		let member = await bot.db.getMember(msg.author.id,args[0]);
+		if(!member) return "You don't have " + article(cfg) + " " + cfg.lang + " with that name registered.";
+		
+		//update member
+		await bot.db.updateMember(msg.author.id,args[0],"show_brackets",!member.show_brackets);
+		return `Now ${member.show_brackets ? "hiding" : "showing"} brackets in proxied messages for ${member.name}.`;
 	}
 };

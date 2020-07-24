@@ -3,10 +3,8 @@ module.exports = {
 	usage: cfg =>  ["showuser - Finds the user that registered the " + cfg.lang + " that last sent a message in this channel"],
 	permitted: (msg) => true,
 	execute: (bot, msg, args, cfg) => {
-		if(!bot.recent[msg.channel.id]) bot.send(msg.channel, "No " + cfg.lang + "s have spoken in this channel since I last started up, sorry.");
-		else {
-			let user = bot.users.get(bot.recent[msg.channel.id].userID);
-			bot.send(msg.channel, `Last ${cfg.lang} message sent by ${bot.recent[msg.channel.id].tulpa.name}, registered to ${user ? user.username + "#" + user.discriminator : "(unknown user " + bot.recent[msg.channel.id].userID + ")"}`);
-		}
+		if(!bot.recent[msg.channel.id])	return "No " + cfg.lang + "s have spoken in this channel since I last started up, sorry.";
+		let recent = bot.recent[msg.channel.id][0];
+		bot.send(msg.channel, { content: `That proxy was sent by <@!${recent.user_id}> (tag at time of sending: ${recent.tag} - id: ${recent.user_id}).`, allowedMentions: { users: false } });
 	}
 };

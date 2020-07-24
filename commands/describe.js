@@ -2,23 +2,27 @@ const {article,proper} = require("../modules/lang");
 
 module.exports = {
 	help: cfg => "View or change " + article(cfg) + " " + cfg.lang + "'s description",
-	usage: cfg =>  ["describe <name> [desc] - if desc is specified, change the " + cfg.lang + "'s describe, if not, simply echo the current one"],
+	usage: cfg =>  ["describe <name> [desc] - if desc is specified, change the " + cfg.lang + "'s describe, if not, simply echo the current one",
+		"describe [name] clear/remove/none/delete - Unset a description for the given " + cfg.lang + "."],
 	permitted: () => true,
-	execute: (bot, msg, args, cfg) => {
-		let out = "";
-		args = bot.getMatches(msg.content.slice(cfg.prefix.length),/['](.*?)[']|(\S+)/gi).slice(1);
-		if(!args[0]) {
-			return bot.cmds.help.execute(bot, msg, ["describe"], cfg);
-		} else if(!bot.tulpae[msg.author.id] || !bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase())) {
-			out = "You don't have " + article(cfg) + " " + cfg.lang + " with that name registered.";
-		} else if(!args[1]) {
-			out = "Current description: " + bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase()).desc;
-		} else {
-			let desc = args.slice(1).join(" ");
-			if(desc.length > 700) out = "Description updated, but was truncated due to Discord embed limits.";
-			else out = "Description updated successfully.";
-			bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase()).desc = desc.slice(0,700);
+	groupArgs: true,
+	execute: async (bot, msg, args, cfg) => {
+		if(!args[0]) return bot.cmds.help.execute(bot, msg, ["describe"], cfg);
+		
+		//check arguments
+		let member = await bot.db.getMember(msg.author.id,args[0]);
+		if(!member) return "You don't have " + article(cfg) + " " + cfg.lang + " with that name registered.";
+		if(!args[1]) return member.description ? "Current description: " + member.description + "\nTo remove it, try " + cfg.prefix + "describe " + member.name + " clear" : "No description currently set for " + member.name;
+		if(["clear","remove","none","delete"].includes(args[1])) {
+			await bot.db.updateMember(msg.author.id,member.name,"description",null);
+			return "Description cleared.";
 		}
-		bot.send(msg.channel, out);
+		
+		//update member
+		let temp = msg.content.slice(msg.content.indexOf(args[0]) + args[0].length);
+		let desc = temp.slice(temp.indexOf(args[1]));
+		await bot.db.updateMember(msg.author.id,args[0],"description",desc.slice(0,1023));
+		if(desc.length > 1023) return "Description updated, but was truncated due to Discord embed limits.";
+		return "Description updated successfully.";
 	}
 };

@@ -1,17 +1,16 @@
 const util = require("util");
-const auth = require("../auth.json");
 
 module.exports = {
-	permitted: (msg) => { return msg.author.id === auth.owner; },
-	execute: (bot, msg, args, cfg) => {
-		if(msg.author.id != auth.owner) return;
-		let message = msg.content.substr(7);
-		let out = "";
+	permitted: (msg) => { return msg.author.id === process.env.DISCORD_OWNERID; },
+	execute: async (bot, msg, args, cfg) => {
+		console.log("js executed via " + msg.content + " by user " + msg.author.id);
+		if(msg.author.id != bot.owner) return;
+		let out;
 		try {
-			out = eval(message);
+			out = await eval(msg.content.slice(cfg.prefix.length + 2).trim());
 		} catch(e) {
 			out = e.toString();
 		}
-		bot.send(msg.channel, util.inspect(out).slice(0,2000));
+		return util.inspect(out).slice(0,2000);
 	}
 };

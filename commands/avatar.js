@@ -5,35 +5,36 @@ const {article,proper} = require("../modules/lang");
 
 module.exports = {
 	help: cfg => "View or change " + article(cfg) + " " + cfg.lang + "'s avatar",
-	usage: cfg =>  ["avatar <name> [url] - if url is specified, change the " + cfg.lang + "'s avatar, if not, simply echo the current one"],
+	usage: cfg =>  ["avatar <name> [url] - if url is specified or an image is uploaded with the command, change the " + cfg.lang + "'s avatar, if no image is given, send the current one"],
 	permitted: () => true,
-	desc: cfg => "The specified URL must be a direct link to an image - that is, the URL should end in .jpg or .png or another common image filetype. Also, it can't be over 1mb in size, as Discord doesn't accept images over this size as webhook avatars.",
-	execute: (bot, msg, args, cfg) => {
-		let out = "";
-		args = bot.getMatches(msg.content.slice(cfg.prefix.length),/['](.*?)[']|(\S+)/gi).slice(1);
-		if(!args[0]) {
-			return bot.cmds.help.execute(bot, msg, ["avatar"], cfg);
-		} else if(!bot.tulpae[msg.author.id] || !bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase())) {
-			out = "You don't have " + article(cfg) + " " + cfg.lang + " with that name registered.";
-		} else if(!args[1] && !msg.attachments[0]) {
-			out = bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase()).url;
-		} else if(!validUrl.isWebUri(args[1]) && !msg.attachments[0]) {
-			out = "Malformed url.";
-		} else {
-			let url = args[1] || msg.attachments[0].url;
-			request.head(url).then(res => {
-				if(!res.headers["content-type"] || !res.headers["content-type"].startsWith("image")) return bot.send(msg.channel, "I couldn't find an image at that URL. Make sure it's a direct link (ends in .jpg or .png for example).");
-				if(Number(res.headers["content-length"]) > 1000000) {
-					return bot.send(msg.channel, "That image is too large and Discord will not accept it. Please use an image under 1mb.");
-				}
-				probe(url).then(result => {
-					if(Math.min(result.width,result.height) >= 1024) return bot.send(msg.channel, "That image is too large and Discord will not accept it. Please use an image where width or height is less than 1024 pixels.");
-					bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase()).url = url;
-					bot.send(msg.channel, "Avatar changed successfully.");
-				}).catch(err => bot.send(msg.channel, "Something went wrong when checking the image. Please try again."));
-			}).catch(err => bot.send(msg.channel, "I couldn't find an image at that URL. Make sure it's a direct link (ends in .jpg or .png for example)."));
-			return;
+	desc: cfg => "It's possible to simply upload the new avatar as an attachment while running the command instead of providing the URL. If a URL is provided, it must be a direct link to an image - that is, the URL should end in .jpg or .png or another common image filetype.\n\nDue to Discord limitations, avatars can't be over 1mb in size and either the width or height of the avatar must be less than 1024.",
+	groupArgs: true,
+	execute: async (bot, msg, args, cfg) => {
+		if(!args[0]) return bot.cmds.help.execute(bot, msg, ["avatar"], cfg);
+
+		//check arguments
+		let name = msg.attachments[0] ? args.join(" ") : args[0];
+		let member = await bot.db.getMember(msg.author.id, name);
+		if(!member) return "You don't have " + article(cfg) + " " + cfg.lang + " with that name registered.";
+		if(!args[1] && !msg.attachments[0]) return member.avatar_url;
+		if(!validUrl.isWebUri(args[1]) && !msg.attachments[0]) return "Malformed url.";
+
+		//check image is valid
+		let url = msg.attachments[0] ? msg.attachments[0].url : args[1];
+		let head;
+		try { head = await request.head(url); }
+		catch(e) { return "I was unable to access that URL. Please try another."; }
+		if(!head.headers["content-type"] || !head.headers["content-type"].startsWith("image")) return "I couldn't find an image at that URL. Make sure it's a direct link (ends in .jpg or .png for example).";
+		if(Number(head.headers["content-length"]) > 1048575) {
+			return "That image is too large and Discord will not accept it. Please use an image under 1mb.";
 		}
-		bot.send(msg.channel, out);
+		let res;
+		try { res = await probe(url); }
+		catch(e) { return "There was a problem checking that image. Please try another."; }
+		if(Math.min(res.width,res.height) >= 1024) return "That image is too large and Discord will not accept it. Please use an image where width or height is less than 1024 pixels.";
+
+		//update member
+		await bot.db.updateMember(msg.author.id,name,"avatar_url",url);
+		return "Avatar changed successfully." + (msg.attachments[0] ? "\nNote: if the message you just used to upload the avatar with gets deleted, the avatar will eventually no longer appear." : "");
 	}
 };

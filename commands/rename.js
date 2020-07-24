@@ -3,24 +3,23 @@ const {article,proper} = require("../modules/lang");
 module.exports = {
 	help: cfg => "Change " + article(cfg) + " " + cfg.lang + "'s name",
 	usage: cfg =>  ["rename <name> <newname> - Set a new name for the " + cfg.lang + ""],
+	desc: cfg => "Use single or double quotes around multi-word names `\"like this\"` or `'like this'`.",
 	permitted: () => true,
-	execute: (bot, msg, args, cfg) => {
-		let out = "";
-		args = bot.getMatches(msg.content.slice(cfg.prefix.length),/['](.*?)[']|(\S+)/gi).slice(1);
-		if(!args[0]) {
-			return bot.cmds.help.execute(bot, msg, ["rename"], cfg);
-		} else if(!args[1]) {
-			out = "Missing argument 'newname'.";
-		} else if(args[1].length < 2 || args[1].length > 28) {
-			out = "New name must be between 2 and 28 characters.";
-		} else if(!bot.tulpae[msg.author.id] || !bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase())) {
-			out = "You don't have " + article(cfg) + " " + cfg.lang + " with that name registered.";
-		} else if(bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[1].toLowerCase() && t.name.toLowerCase() != args[0].toLowerCase())) {
-			out = "You already have " + article(cfg) + " " + cfg.lang + " with that new name.";
-		} else {
-			bot.tulpae[msg.author.id].find(t => t.name.toLowerCase() == args[0].toLowerCase()).name = args[1];
-			out = proper(cfg.lang) + " renamed successfully.";
-		}
-		bot.send(msg.channel, out);
+	groupArgs: true,
+	execute: async (bot, msg, args, cfg) => {
+		if(!args[0]) return bot.cmds.help.execute(bot, msg, ["rename"], cfg);
+
+		//check arguments
+		let member = await bot.db.getMember(msg.author.id,args[0]);
+		if(!args[1]) return "Missing argument 'newname'.";
+		let newname = bot.sanitizeName(args[1]);
+		let newMember = await bot.db.getMember(msg.author.id,newname);
+		if(newname.length < 1 || newname.length > 76) return "New name must be between 1 and 76 characters.";
+		if(!member) return "You don't have " + article(cfg) + " " + cfg.lang + " with that name registered.";
+		if(newMember) return "You already have " + article(cfg) + " " + cfg.lang + " with that new name.";
+		
+		//update member
+		await bot.db.updateMember(msg.author.id,args[0],"name",newname);
+		return proper(cfg.lang) + " renamed successfully.";
 	}
 };

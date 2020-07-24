@@ -1,66 +1,51 @@
-const Eris = require("eris");
-const {promisify} = require("util");
 const fs = require("fs");
-const auth = require("./auth.json");
+const Sentry = require("@sentry/node");
+Sentry.init({dsn: process.env.SENTRY_DSN });
 
-const init = async () => {
+const Base = require("eris-sharder").Base;
 
-	const bot = new Eris(auth.discord, {
-		maxShards: "auto",
-		disableEvents: {
-			GUILD_BAN_ADD: true,
-			GUILD_BAN_REMOVE: true,
-			MESSAGE_DELETE: true,
-			MESSAGE_DELETE_BULK: true,
-			MESSAGE_UPDATE: true,
-			TYPING_START: true,
-			VOICE_STATE_UPDATE: true
-		},
-		messageLimit: 0,
-	});
-
-	//create data files if they don't exist
-	["/tulpae.json","/servercfg.json","/webhooks.json"].forEach(async file => {
-		if(!(await promisify(fs.exists)(__dirname + file)))
-			await promisify(fs.writeFile)(__dirname + file, "{ }");
-	});
-
-	bot.tulpae = require("./tulpae.json");
-	bot.config = require("./servercfg.json");
-	bot.webhooks = require("./webhooks.json");
-
-	bot.recent = {};
-	bot.pages = {};
-
-	bot.cmds = {};
-  
-	require("./modules/util")(bot);
-	bot.backupAll();
-	setInterval(() => bot.saveAll(), 600000);
-  
-	setInterval(() => bot.backupAll(), 86400000);
-  
-	bot.logger = require("./modules/logger");
-  
-	console.log("COMMANDS:");
-	let files = await promisify(fs.readdir)("./commands");
-	files.forEach(file => {
-		console.log(`\t${file}`);
-		bot.cmds[file.slice(0,-3)] = require("./commands/"+file);
-	});
-  
-	console.log("\nEVENTS:");
-	files = await promisify(fs.readdir)("./events");
-	files.forEach(file => {
-		console.log(`\t${file}`);
-		bot.on(file.slice(0,-3), (...args) => require("./events/"+file)(...args,bot));
-	});
-
-	if (!auth.inviteCode) {
-		delete bot.cmds.invite;
+class Tupperbox extends Base {
+	constructor(bot) {
+		super(bot);
 	}
 
-	bot.connect();
-};
+	launch() {
+		let bot = this.bot;
+		bot.base = this;
+		bot.sentry = Sentry;
+		bot.db = require("./modules/db");
+		bot.recent = {};
+		bot.pages = {};
+		bot.cmds = {};
+		bot.dialogs = {};
+		bot.owner = process.env.DISCORD_OWNERID;
+		bot.defaultCfg = { prefix: process.env.DEFAULT_PREFIX, lang: process.env.DEFAULT_LANG };
+		try { bot.blacklist = require("./modules/blacklist.json"); }
+		catch(e) { bot.blacklist = []; }
+		require("./modules/ipc")(bot);
+		require("./modules/util")(bot);
 
-init();
+		let files = fs.readdirSync("./commands");
+		files.forEach(file => {
+			bot.cmds[file.slice(0,-3)] = require("./commands/"+file);
+		});
+
+		files = fs.readdirSync("./events");
+		files.forEach(file => {
+			bot.on(file.slice(0,-3), (...args) => require("./events/"+file)(...args,bot));
+		});
+
+		process.on("message", message => {
+			if(bot.ipc[message.name]) bot.ipc[message.name](message);
+		});
+
+		setInterval(bot.updateStatus,3600000); //every hour
+		bot.updateStatus();
+	
+		if (!process.env.DISCORD_INVITE) {
+			delete bot.cmds.invite;
+		}
+	}
+}
+
+module.exports = Tupperbox;
